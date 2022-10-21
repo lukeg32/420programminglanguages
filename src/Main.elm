@@ -18,14 +18,26 @@ import Regex
 import Dict exposing (Dict)
 import Random
 import Debug
+import Time
+import Task
 
 
 
 -- MAIN
 
 
+main : Program () Model Msg
 main =
-  Browser.sandbox { init = init, update = update, view = view }
+  Browser.element
+    { init = init
+    , view = view
+    , update = update
+    , subscriptions = subscriptions
+    }
+
+subscriptions : Model -> Sub Msg
+subscriptions model =
+    Sub.none
 
 
 
@@ -36,13 +48,17 @@ type alias Model =
     { value : Int
     , output : String
     , input : String
+    , seed : Random.Seed
+    , cur_parse : String
+    , tokens : Tokens
     }
 
 
 
-init : Model
-init =
-    Model 0 "Hi" "crap\nmore\n\n{\n<aname>\nlineone;\nlinetwo;\n}\n\n{\n<2name>\n2lineone;\n2linetwo;\n}"
+init : () -> ( Model, Cmd Msg )
+init flags =
+    (Model 0 "Hi" "crap\nmore\n\n{\n<aname>\nlineone;\nlinetwo;\n}\n\n{\n<2name>\n2lineone;\n2linetwo;\n}" (Random.initialSeed 111111) "a" Dict.empty
+    , Task.perform GetTime Time.now)
 
 
 type alias Tokens = Dict String (List String)
@@ -58,7 +74,6 @@ type alias Name =
     }
 
 
-
 -- UPDATE
 
 --lines = Dict.empty String List(String)
@@ -69,18 +84,39 @@ type Msg
     | Decrement
     | Exec
     | Change String
+    | GetTime Time.Posix
+    | RandomNum
+    | Parse
+
+noMaybe : Maybe (List String) -> 
+noMaybe
 
 
-update : Msg -> Model -> Model
+update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        Increment -> { model | value = model.value + 1 }
+        Increment -> ({ model | value = model.value + 1 }, Cmd.none)
 
-        Decrement -> { model | value = model.value - 1 }
+        Decrement -> ({ model | value = model.value - 1 }, Cmd.none)
 
-        Exec -> { model | output = generateStatment (makeStruct model.input) model.input }
+        Exec ->
+            ({ model | cur_parse = (Dict.get "<start>" model.tokens) |> noMaybe, output = Dict.get "<start>" model.tokens}
+             , Cmd.none)
 
-        Change new -> { model | input = new }
+        Parse ->
+            ({model | tokens = makeStruct model.input}, Cmd.none)
+
+        Change new -> ({ model | input = new }, Cmd.none)
+
+        GetTime timeNow ->
+            ( { model | seed  = Random.initialSeed <| Time.posixToMillis timeNow }, Cmd.none )
+
+        RandomNum ->
+            let
+                result = Random.step (Random.int 0 100) model.seed
+                newSeed = Tuple.second result
+            in
+            ( { model | seed  =  newSeed }, Cmd.none )
 
 
 
@@ -142,7 +178,10 @@ turnToTokens lstr =
 -- takes the input string and turns it into the Tokens struct
 makeStruct : String -> Tokens
 makeStruct raw =
-    Regex.find getChunks raw |> List.map runRegex |> List.map turnToTokens |> List.foldr Dict.union Dict.empty
+    Regex.find getChunks raw
+    |> List.map runRegex
+    |> List.map turnToTokens
+    |> List.foldr Dict.union Dict.empty
 
 hasTerminal : String -> Bool
 hasTerminal str =
@@ -187,7 +226,18 @@ replaceNonTerminals toks input =
 -- turns the toks and the input into an actual statment
 generateStatment : Tokens -> String -> String
 generateStatment toks input =
+
     replaceTerminal toks "asdf <aname> fdsa <2name>"
+
+
+getNumber : Model -> Int
+getNumber model =
+    let
+        result = Random.step (Random.int 0 100) model.seed
+        num = Tuple.first result
+    in
+    num
+
 
 
 
@@ -214,13 +264,16 @@ view : Model -> Html Msg
 view model =
   div [ style "backgroundColor" "black"]
     [ button [ onClick Decrement ] [ text "-" ]
+    , button [ onClick RandomNum ] [ text "random" ]
+    , button [ onClick Parse ] [ text "Make Parse Structure" ]
     , div [] [ text (String.fromInt model.value) ]
     , button [ onClick Increment ] [ text "+" ]
     , button [ onClick Exec ] [ text "run" ]
     , div [] []
     -- , text <| Debug.toString <| (Parser.run nme model.input )
     , div [] []
-    , div [ style "color" "white" ] [ text <| Debug.toString <| (makeStruct model.input) ]
+    , div [ style "color" "white" ] [ text <| Debug.toString <| (model.tokens) ]
+    , div [ style "color" "white" ] [ text <| Debug.toString <| (getNumber model) ]
     , div [] []
     , getText model
     , div [] [ text (model.output) ]
