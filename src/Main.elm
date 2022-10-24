@@ -54,30 +54,16 @@ type alias Model =
     }
 
 
-
 init : () -> ( Model, Cmd Msg )
 init flags =
-    (Model 0 "Hi" "crap\nmore\n\n{\n<aname>\nlineone;\nlinetwo;\n}\n\n{\n<2name>\n2lineone;\n2linetwo;\n}" (Random.initialSeed 111111) "a" Dict.empty
+    (Model 0 "Hi" polition (Random.initialSeed 111111) "a" Dict.empty
     , Task.perform GetTime Time.now)
 
 
 type alias Tokens = Dict String (List String)
 
-type alias Point =
-    { x : Float
-    , y : Float
-    }
-
-type alias Name = 
-    { thing : String
-    , line : String
-    }
-
 
 -- UPDATE
-
---lines = Dict.empty String List(String)
-    --{a | a = Dict.insert "asdf" ["asdf","fdsa"] a}
 
 type Msg
     = Increment
@@ -87,9 +73,14 @@ type Msg
     | GetTime Time.Posix
     | RandomNum
     | Parse
+    | Terminal
 
-noMaybe : Maybe (List String) -> 
-noMaybe
+noMaybe : Maybe (List String) -> List String
+noMaybe this =
+    case this of
+        Just a -> a
+        Nothing -> ["failed", "Failed"]
+
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
@@ -100,8 +91,16 @@ update msg model =
         Decrement -> ({ model | value = model.value - 1 }, Cmd.none)
 
         Exec ->
-            ({ model | cur_parse = (Dict.get "<start>" model.tokens) |> noMaybe, output = Dict.get "<start>" model.tokens}
-             , Cmd.none)
+            let
+                mm = { model | tokens = makeStruct model.input, cur_parse = "", output = ""}
+            in
+            update Terminal { mm | cur_parse = (Dict.get "<start>" mm.tokens) |> noMaybe |> List.head |> unMaybe}
+
+        Terminal ->
+            if hasTerminal model.cur_parse then
+                update Terminal (replaceTerminal model)
+            else
+                ({ model | output = model.cur_parse }, Cmd.none)
 
         Parse ->
             ({model | tokens = makeStruct model.input}, Cmd.none)
@@ -121,23 +120,6 @@ update msg model =
 
 
 
-whitespace : Parser ()
-whitespace =
-    chompWhile (\c -> c == ' ' || c == '\n')
-
-
--- nme : Parser Name
--- nme =
-    -- succeed Name
-        -- |. rmCrap
-        -- |. symbol "{\n"
-        -- |. symbol "<"
-        -- |= (getChompedString <| chompUntil ">")
-        -- |. symbol ">"
-        -- |. whitespace
-        -- |= (getChompedString <| chompUntil ";")
-        -- |. symbol ";"
-        -- |. whitespace
 
 
 -- gets each chunk surrounded by {}
@@ -150,7 +132,8 @@ getChunks =
 getBits : Regex.Regex
 getBits =
     Maybe.withDefault Regex.never <|
-        Regex.fromString "[^}\\n{;]+"
+        Regex.fromString "[^}{;]+"
+        --Regex.fromString "((?(?=.*?({\\n<[^<>]+>\\n).*?)\\2)[^{};]+)"
 
 -- regex for nontermianl
 nonTerminal : Regex.Regex
@@ -158,10 +141,37 @@ nonTerminal =
     Maybe.withDefault Regex.never <|
         Regex.fromString "<[^<>]+>"
 
+-- "parser" will take a couple newlines just for fun, remove those
+notJustaNewline : String -> Bool
+notJustaNewline str =
+    if str == "\n" then
+        False
+    else
+        True
+
+-- removes a front newline, because the "parser" leaves them in
+removeFrontNewline : String -> String
+removeFrontNewline str =
+    if (String.left 1 str) == "\n" then
+        String.dropLeft 1 str
+    else
+        str
+
+extract : List String -> List String
+extract list =
+    let
+        first = List.head list |> unMaybe
+        -- extract the terminal name from the first element
+        term = Regex.find nonTerminal first |> List.map .match |> List.head |> unMaybe
+        rest = Regex.replaceAtMost 1 nonTerminal (\_ -> "") first |> String.dropLeft 2
+        newList = term :: rest :: (List.drop 1 list) |> List.filter notJustaNewline |> List.map removeFrontNewline
+    in
+    newList
+
 -- takes a chunk and turns it into a list of strings
 runRegex : Regex.Match -> List String
 runRegex string =
-    Regex.find getBits string.match |> List.map .match
+    Regex.find getBits string.match |> List.map .match |> extract
 
 -- remove the maybe
 unMaybe : Maybe String -> String
@@ -188,15 +198,6 @@ hasTerminal str =
     Regex.contains nonTerminal str
 
 
--- getRandom : List String -> Int
--- getRandom arr =
-    -- let
-        -- --gen = Random.List.choose arr
-        -- (i, value) = Random.generate New (Random.int 0 10)
-        -- elem = List.drop i arr |> List.head |> unMaybe
-    -- in
-    -- elem
-
 getTerminal : String -> String
 getTerminal input =
     case (Regex.find nonTerminal input |> List.head) of
@@ -205,29 +206,36 @@ getTerminal input =
 
 type alias Inside = List String
 
+getLength : String -> Tokens -> Int
+getLength key toks =
+    case (Dict.get key toks) of
+        Just value -> List.length value
+        Nothing -> -1
+
+getList : String -> Tokens -> List String
+getList key toks =
+    case (Dict.get key toks) of
+        Just value -> value
+        Nothing -> ["uh oh"]
+
+getAt : List String -> Int -> String
+getAt list index =
+    List.drop index list |> List.head |> unMaybe
 
 --List.drop (Random.generate Random.int 0 (List.length value - 1)) value |> List.head |> unMaybe
-replaceTerminal : Tokens -> String -> String
-replaceTerminal toks input =
-    let key = getTerminal input in
-    case (Dict.get key toks) of
-        Just value -> Regex.replaceAtMost 1 nonTerminal (\_ -> List.head value |> unMaybe) input
-        Nothing -> "error: bad key"
+replaceTerminal : Model -> Model
+replaceTerminal model =
+    let
+        key = getTerminal model.cur_parse
+        list = getList key model.tokens
+        len = getLength key model.tokens
+        values = Random.step (Random.int 0 (len - 1)) model.seed
+        replaceWith = getAt list (Tuple.first values)
+    in
+    case (Dict.get key model.tokens) of
+        Just value -> {model | seed = (Tuple.second values), cur_parse = Regex.replaceAtMost 1 nonTerminal (\_ -> replaceWith) model.cur_parse}
+        Nothing -> model
 
-replaceNonTerminals : Tokens -> String -> String
-replaceNonTerminals toks input =
-    if (hasTerminal input) then
-            --Debug.log "asdf"
-            replaceTerminal toks input |> replaceNonTerminals toks
-    else
-        input
-
-
--- turns the toks and the input into an actual statment
-generateStatment : Tokens -> String -> String
-generateStatment toks input =
-
-    replaceTerminal toks "asdf <aname> fdsa <2name>"
 
 
 getNumber : Model -> Int
@@ -251,7 +259,7 @@ getText model =
                  [ text model.input
                  ],
         textarea [ style "height" "400px"
-                 , style "width" "400px"
+                 , style "width" "620px"
                  ]
                  [ text model.output
                  ]
@@ -263,18 +271,452 @@ getText model =
 view : Model -> Html Msg
 view model =
   div [ style "backgroundColor" "black"]
-    [ button [ onClick Decrement ] [ text "-" ]
-    , button [ onClick RandomNum ] [ text "random" ]
-    , button [ onClick Parse ] [ text "Make Parse Structure" ]
-    , div [] [ text (String.fromInt model.value) ]
-    , button [ onClick Increment ] [ text "+" ]
-    , button [ onClick Exec ] [ text "run" ]
+    [ --button [ onClick Decrement ] [ text "-" ]
+    --, button [ onClick RandomNum ] [ text "random" ]
+    --, button [ onClick Parse ] [ text "Make Parse Structure" ]
+    --, div [] [ text (String.fromInt model.value) ]
+    --, button [ onClick Increment ] [ text "+" ]
+    button [ onClick Exec ] [ text "run" ]
     , div [] []
     -- , text <| Debug.toString <| (Parser.run nme model.input )
     , div [] []
-    , div [ style "color" "white" ] [ text <| Debug.toString <| (model.tokens) ]
-    , div [ style "color" "white" ] [ text <| Debug.toString <| (getNumber model) ]
+    --, div [ style "color" "white" ] [ text <| Debug.toString <| (getNumber model) ]
     , div [] []
     , getText model
-    , div [] [ text (model.output) ]
+    --, div [] [ text (model.output) ]
+    --, div [ style "color" "white" ] [ text <| Debug.toString <| (model.tokens) ]
     ]
+
+
+
+polition = """
+# a test grammer
+{
+<start>
+Dear <descriptor> Voter,
+
+    I, <politician>, am running for <position>.  <argument>
+        Please <supportive_verb> me by <means_of_support>.
+
+    Thank you and <pc_salutation>;
+}
+
+{
+<descriptor>
+; ; ; ;
+Conscientious;
+Conscientious;
+Conscientious;
+Intelligent;
+Intelligent;
+Intelligent;
+Supportive;
+Supportive;
+Supportive;
+Attentive;
+Attentive;
+Attentive;
+<party>;
+<party>;
+Foolish Mortal, I mean ... <descriptor>;
+Incompetent Boob, I mean ... <descriptor>;
+Stupid;
+Non-;
+Undecided;
+}
+
+{
+<politician>
+<politician>, a <party>;
+Stanley P. Statesman;
+Connie L. Congress;
+Leslie O. Legislature;
+Jordan H. Judge;
+Bob;
+Arnold Schwartzenegger;
+John Kerry;
+Bill Clinton;
+George Bush Sr.;
+George W. Bush;
+G-Dubbya;
+Ron Wyden;
+Matthew Cox;
+Dr. David M. Hansen;
+Mr. Brent Wilson;
+Joe Bruce - Emperor of the World;
+George Foreman;
+George Washington;
+Abraham Lincoln;
+Mahatma Gandhi;
+Siddhartha Gautama;
+Moses;
+Satan;
+Spongebob Squarepants;
+George Fox;
+Ralph Nader;
+Homer Simpson;
+Oscar Meyer;
+}
+
+{
+<party>
+Republican;
+Democrat;
+Whig;
+Federalist;
+Constitutionalist;
+Fundamentalist;
+Nazi;
+PANSI Green-party member;
+Gay Republican;
+Libertarian;
+Communist;
+Socialist;
+Quaker;
+}
+
+{
+<position>
+<office>;
+<office> of <political_body>;
+}
+
+{
+<office>
+Janitor;
+Dictator;
+Senator;
+Congressperson;
+Legislator;
+Supreme Court Judge;
+Evil Oppressor;
+President;
+Vice President;
+Treasurer;
+Governor;
+Prime Minister;
+Owner;
+General Representative;
+King;
+}
+
+{
+<political_body>
+the world;
+<country>;
+<state>;
+<county> County;
+<city>;
+<school>;
+<minority_group>;
+the ACLU;
+MADD;
+Microsoft;
+}
+
+{
+<country>
+the United States;
+Canada;
+Mexico;
+Micronesia;
+Japan;
+China;
+Germany;
+India;
+Israel;
+England;
+}
+
+{
+<state>
+Oregon;
+Washington;
+California;
+New York;
+Texas;
+Utah;
+Florida;
+Virginia;
+Massachusetts;
+Alaska;
+}
+
+{
+<county>
+Lane;
+Washington;
+Multnomah;
+Yamhill;
+Linn;
+Clark;
+Podunk;
+Clickatat;
+}
+
+{
+<city>
+Portland;
+Newberg;
+Beaverton;
+Salem;
+Eugene;
+Roseburg;
+Seattle;
+Spokane;
+Corvallis;
+New York;
+Miami;
+Houston;
+Berlin;
+Paris;
+Jerusalem;
+Beijing;
+Nairobi;
+Springfield;
+}
+
+{
+<school>
+<politician> University;
+University of <place>;
+<state> State University;
+<politician> <level> School;
+<place> <level> School;
+<place> Graduate Institute;
+Institute of <place>;
+}
+
+{
+<level>
+High;
+Middle;
+Elementary;
+Cosmetic;
+Technical;
+}
+
+{
+<place>
+<country>;
+<state>;
+<county> County;
+<city>;
+}
+
+{
+<minority_group>
+Hispanics;
+Blacks;
+Women;
+Homosexuals;
+Asians;
+the League of People Too Racist Against Whites to Admit It;
+Programmers Who Produce Good Microsoft Products;
+}
+
+{
+<argument>
+<argument> <argument>;
+<argument> <argument>;
+<argument> <argument>;
+I am <feeling> <issue>.;
+My opponent, <politician>, is <feeling> <issue>.;
+If <event>, I will <outlandish_claim>.;
+If <event>, my opponent will <outlandish_claim>.;
+If <event>, <politician> will <outlandish_claim>.;
+}
+
+{
+<feeling>
+outraged by;
+excited about;
+happy about;
+sad about;
+disheartened by;
+encouraged by;
+unable to believe;
+shocked by;
+hopeful for;
+impressed with;
+}
+
+{
+<issue>
+<issue> and <issue>;
+<issue> and <issue>;
+the use of partial-birth abortion;
+the legalization of gay marriage;
+the war in <country>;
+reinstating the draft;
+a harsher penalty for parole violators;
+world peace;
+world hunger;
+the AIDS epidemic;
+grammar parsing;
+grammar generation;
+the cost of tuition;
+the use of sauerkraut on hot dogs;
+the use of ejector seats in helicopters;
+the creation of glow-in-the-dark sunglasses;
+slanderous political campaigning;
+the use of oil;
+the use of electricity;
+the building of nuclear power plants;
+the spanking of children;
+}
+
+{
+<event>
+I am elected;
+my opponent is elected;
+Hell freezes over;
+we do not remain strong;
+you do not believe me;
+you do not vote for me;
+you vote for me;
+I vote for you;
+you don\'t get on that plane today;
+}
+
+{
+<outlandish_claim>
+<outlandish_claim> and <outlandish_claim>;
+<outlandish_claim> and <outlandish_claim>;
+begin <issue>;
+end <issue>;
+see to it that <issue> continues;
+see to it that <issue> stops;
+put <object> in every <building> and <object> on every doorstep;
+never support <issue>;
+always support <issue>;
+never support <minority_group>;
+always support <minority_group>;
+tell the truth;
+}
+
+{
+<object>
+<object> or <object>;
+<object> or <object>;
+<object> and <object>;
+<object> and <object>;
+a car;
+a dog;
+a cat;
+two cats;
+five cats;
+a lifetime supply of cats;
+a child;
+air freshener;
+undue sums of money;
+<amount>;
+a newspaper;
+a pillow;
+a warm bed;
+a home-cooked meal;
+a rake;
+a ping-pong table;
+a foosball table;
+a foosball;
+a computer;
+an Internet connection;
+a set of headphones;
+a license for all Microsoft products;
+a telephone;
+a toilet;
+a department store;
+a purple database (it has the most RAM);
+}
+
+{
+<building>
+home;
+garage;
+office;
+fast food restaurant;
+corporate office;
+small-town Mom and Pop store;
+official state building;
+church;
+paintball arena;
+Porta-potty;
+science center named after Edwards and Holman;
+student union building;
+dog house;
+railway station;
+}
+
+{
+<supportive_verb>
+support;
+join;
+take up arms with;
+move forward with;
+do the right thing with;
+trash my opponent with;
+guarantee success for;
+}
+
+{
+<means_of_support>
+<means_of_support> and <means_of_support>;
+donating <amount> to my campaign fund;
+voting for me on election day;
+sending out junk mail to all <party>\'s;
+registering to vote;
+bench-pressing twice your body weight on national television;
+firing off <weapon>;
+firing <weapon> into the air;
+preventing all <party>\'s from voting;
+encouraging all <party>\'s to vote;
+inciting a revolution;
+inciting a revolution using <weapon>;
+burning the flag of <country>;
+}
+
+{
+<amount>
+<amount> or <amount>;
+<amount> and <amount>;
+$4.73;
+$50;
+$100;
+$1,000;
+$1,000,000;
+a lot;
+your cat;
+your dog;
+your children;
+your mom;
+everything you have;
+your very life;
+}
+    
+{
+<weapon>
+<weapon> and <weapon>;
+fireworks;
+semi-automatic machine guns;
+rocket launchers;
+handguns;
+poison darts;
+dangerous chemicals;
+mortars;
+surface-to-air missiles;
+Spam;
+M16s;
+}
+
+{
+<pc_salutation>
+God bless.;
+remember, a vote for me is a vote for <issue>.;
+I\'ll see you on election day.;
+remember, you don\'t have a choice.;
+remember, I know where you live.;
+save those pennies!;
+remember, buy all our playsets and toys!;
+Big Brother is watching...;
+}
+"""
