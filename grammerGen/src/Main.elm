@@ -66,13 +66,11 @@ type alias Tokens = Dict String (List String)
 -- UPDATE
 
 type Msg
-    = Increment
-    | Decrement
+    =
     | Exec
     | Change String
     | GetTime Time.Posix
     | RandomNum
-    | Parse
     | Terminal
 
 noMaybe : Maybe (List String) -> List String
@@ -86,10 +84,6 @@ noMaybe this =
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
-        Increment -> ({ model | value = model.value + 1 }, Cmd.none)
-
-        Decrement -> ({ model | value = model.value - 1 }, Cmd.none)
-
         Exec ->
             let
                 mm = { model | tokens = makeStruct model.input, cur_parse = "", output = ""}
@@ -101,9 +95,6 @@ update msg model =
                 update Terminal (replaceTerminal model)
             else
                 ({ model | output = model.cur_parse }, Cmd.none)
-
-        Parse ->
-            ({model | tokens = makeStruct model.input}, Cmd.none)
 
         Change new -> ({ model | input = new }, Cmd.none)
 
