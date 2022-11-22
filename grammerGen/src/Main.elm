@@ -66,51 +66,54 @@ type alias Tokens = Dict String (List String)
 -- UPDATE
 
 type Msg
-    =
-    | Exec
+    = Exec
     | Change String
     | GetTime Time.Posix
-    | RandomNum
     | Terminal
 
+-- unwrap maybe list string
 noMaybe : Maybe (List String) -> List String
 noMaybe this =
     case this of
         Just a -> a
         Nothing -> ["failed", "Failed"]
 
+-- unwrap maybe string
+unMaybe : Maybe String -> String
+unMaybe str =
+    case str of
+        Just y -> y
+        Nothing -> "error: bad maybe"
 
 
 update : Msg -> Model -> ( Model, Cmd Msg )
 update msg model =
     case msg of
+        -- makes the struct and starts the terminal loop
         Exec ->
-            let
-                mm = { model | tokens = makeStruct model.input, cur_parse = "", output = ""}
-            in
-            update Terminal { mm | cur_parse = (Dict.get "<start>" mm.tokens) |> noMaybe |> List.head |> unMaybe}
+           let
+                tokens = makeStruct model.input
+                start = Dict.get "<start>" tokens
+                    |> noMaybe
+                    |> List.head
+                    |> unMaybe
+           in
+           update Terminal { model | tokens = tokens, cur_parse = start, output = ""}
 
+
+        -- the loop that replaces terminals with there corresponding part
         Terminal ->
             if hasTerminal model.cur_parse then
                 update Terminal (replaceTerminal model)
             else
                 ({ model | output = model.cur_parse }, Cmd.none)
 
+        -- updates the models input var with the new information
         Change new -> ({ model | input = new }, Cmd.none)
 
+        -- gets the time and puts it as the seed
         GetTime timeNow ->
             ( { model | seed  = Random.initialSeed <| Time.posixToMillis timeNow }, Cmd.none )
-
-        RandomNum ->
-            let
-                result = Random.step (Random.int 0 100) model.seed
-                newSeed = Tuple.second result
-            in
-            ( { model | seed  =  newSeed }, Cmd.none )
-
-
-
-
 
 
 -- gets each chunk surrounded by {}
@@ -124,13 +127,13 @@ getBits : Regex.Regex
 getBits =
     Maybe.withDefault Regex.never <|
         Regex.fromString "[^}{;]+"
-        --Regex.fromString "((?(?=.*?({\\n<[^<>]+>\\n).*?)\\2)[^{};]+)"
 
 -- regex for nontermianl
 nonTerminal : Regex.Regex
 nonTerminal =
     Maybe.withDefault Regex.never <|
         Regex.fromString "<[^<>]+>"
+
 
 -- "parser" will take a couple newlines just for fun, remove those
 notJustaNewline : String -> Bool
@@ -148,28 +151,31 @@ removeFrontNewline str =
     else
         str
 
+-- processes the raw match list, removes garbage and puts the nonterminal in front
 extract : List String -> List String
 extract list =
     let
         first = List.head list |> unMaybe
         -- extract the terminal name from the first element
-        term = Regex.find nonTerminal first |> List.map .match |> List.head |> unMaybe
-        rest = Regex.replaceAtMost 1 nonTerminal (\_ -> "") first |> String.dropLeft 2
-        newList = term :: rest :: (List.drop 1 list) |> List.filter notJustaNewline |> List.map removeFrontNewline
+        term = Regex.find nonTerminal first
+            |> List.map .match
+            |> List.head
+            |> unMaybe
+
+        termExtra = Regex.replaceAtMost 1 nonTerminal (\_ -> "") first |> String.dropLeft 2
+
+        rest = (List.drop 1 list)
+            |> List.filter notJustaNewline
+            |> List.map removeFrontNewline
+
     in
-    newList
+    term :: termExtra :: rest
 
 -- takes a chunk and turns it into a list of strings
 runRegex : Regex.Match -> List String
 runRegex string =
     Regex.find getBits string.match |> List.map .match |> extract
 
--- remove the maybe
-unMaybe : Maybe String -> String
-unMaybe str =
-    case str of
-        Just y -> y
-        Nothing -> "error: bad maybe"
 
 -- takes the list of strings and turns it into a token object, which is just a dictionary
 turnToTokens : List String -> Tokens
@@ -184,62 +190,67 @@ makeStruct raw =
     |> List.map turnToTokens
     |> List.foldr Dict.union Dict.empty
 
+-- checks if there is a non terminal in the string
 hasTerminal : String -> Bool
 hasTerminal str =
     Regex.contains nonTerminal str
 
-
+-- finds the first non terminal in the string and returns it
 getTerminal : String -> String
 getTerminal input =
     case (Regex.find nonTerminal input |> List.head) of
         Just value -> value.match
         Nothing -> "Uh oh"
 
-type alias Inside = List String
-
+-- get the length of the list accessed by the given key
 getLength : String -> Tokens -> Int
 getLength key toks =
     case (Dict.get key toks) of
         Just value -> List.length value
         Nothing -> -1
 
+-- gets the list associated with the given key
 getList : String -> Tokens -> List String
 getList key toks =
     case (Dict.get key toks) of
         Just value -> value
         Nothing -> ["uh oh"]
 
+-- gets the value at the given index
 getAt : List String -> Int -> String
 getAt list index =
     List.drop index list |> List.head |> unMaybe
 
---List.drop (Random.generate Random.int 0 (List.length value - 1)) value |> List.head |> unMaybe
+-- will replace on non-terminal
 replaceTerminal : Model -> Model
 replaceTerminal model =
     let
         key = getTerminal model.cur_parse
         list = getList key model.tokens
         len = getLength key model.tokens
-        values = Random.step (Random.int 0 (len - 1)) model.seed
-        replaceWith = getAt list (Tuple.first values)
+        randomtuple = Random.step (Random.int 0 (len - 1)) model.seed
+        replaceWith = getAt list (Tuple.first randomtuple)
+
+        seed = Tuple.second randomtuple
+        newParse = Regex.replaceAtMost 1 nonTerminal (\_ -> replaceWith) model.cur_parse
     in
-    case (Dict.get key model.tokens) of
-        Just value -> {model | seed = (Tuple.second values), cur_parse = Regex.replaceAtMost 1 nonTerminal (\_ -> replaceWith) model.cur_parse}
-        Nothing -> model
+    {model | seed = (Tuple.second randomtuple), cur_parse = newParse}
 
 
-
-getNumber : Model -> Int
-getNumber model =
-    let
-        result = Random.step (Random.int 0 100) model.seed
-        num = Tuple.first result
-    in
-    num
+-- VIEW
 
 
+view : Model -> Html Msg
+view model =
+  div [ style "backgroundColor" "black"]
+    [ button [ onClick Exec ] [ text "run" ]
+    , div [] []
+    , div [] []
+    , div [] []
+    , getText model
+    ]
 
-
+-- turns the model into html, and has input for the model
 getText : Model -> Html Msg
 getText model =
     div [] [
@@ -256,30 +267,7 @@ getText model =
                  ]
             ]
 
--- VIEW
-
-
-view : Model -> Html Msg
-view model =
-  div [ style "backgroundColor" "black"]
-    [ --button [ onClick Decrement ] [ text "-" ]
-    --, button [ onClick RandomNum ] [ text "random" ]
-    --, button [ onClick Parse ] [ text "Make Parse Structure" ]
-    --, div [] [ text (String.fromInt model.value) ]
-    --, button [ onClick Increment ] [ text "+" ]
-    button [ onClick Exec ] [ text "run" ]
-    , div [] []
-    -- , text <| Debug.toString <| (Parser.run nme model.input )
-    , div [] []
-    --, div [ style "color" "white" ] [ text <| Debug.toString <| (getNumber model) ]
-    , div [] []
-    , getText model
-    --, div [] [ text (model.output) ]
-    --, div [ style "color" "white" ] [ text <| Debug.toString <| (model.tokens) ]
-    ]
-
-
-
+-- the initial grammer
 polition = """
 # a test grammer
 {

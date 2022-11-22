@@ -5490,51 +5490,6 @@ var $elm$core$List$head = function (list) {
 		return $elm$core$Maybe$Nothing;
 	}
 };
-var $elm$random$Random$Generator = function (a) {
-	return {$: 'Generator', a: a};
-};
-var $elm$core$Bitwise$and = _Bitwise_and;
-var $elm$core$Basics$negate = function (n) {
-	return -n;
-};
-var $elm$core$Bitwise$xor = _Bitwise_xor;
-var $elm$random$Random$peel = function (_v0) {
-	var state = _v0.a;
-	var word = (state ^ (state >>> ((state >>> 28) + 4))) * 277803737;
-	return ((word >>> 22) ^ word) >>> 0;
-};
-var $elm$random$Random$int = F2(
-	function (a, b) {
-		return $elm$random$Random$Generator(
-			function (seed0) {
-				var _v0 = (_Utils_cmp(a, b) < 0) ? _Utils_Tuple2(a, b) : _Utils_Tuple2(b, a);
-				var lo = _v0.a;
-				var hi = _v0.b;
-				var range = (hi - lo) + 1;
-				if (!((range - 1) & range)) {
-					return _Utils_Tuple2(
-						(((range - 1) & $elm$random$Random$peel(seed0)) >>> 0) + lo,
-						$elm$random$Random$next(seed0));
-				} else {
-					var threshhold = (((-range) >>> 0) % range) >>> 0;
-					var accountForBias = function (seed) {
-						accountForBias:
-						while (true) {
-							var x = $elm$random$Random$peel(seed);
-							var seedN = $elm$random$Random$next(seed);
-							if (_Utils_cmp(x, threshhold) < 0) {
-								var $temp$seed = seedN;
-								seed = $temp$seed;
-								continue accountForBias;
-							} else {
-								return _Utils_Tuple2((x % range) + lo, seedN);
-							}
-						}
-					};
-					return accountForBias(seed0);
-				}
-			});
-	});
 var $elm$regex$Regex$find = _Regex_findAtMost(_Regex_infinity);
 var $author$project$Main$getChunks = A2(
 	$elm$core$Maybe$withDefault,
@@ -5588,9 +5543,24 @@ var $author$project$Main$unMaybe = function (str) {
 	}
 };
 var $author$project$Main$extract = function (list) {
+	var rest = A2(
+		$elm$core$List$map,
+		$author$project$Main$removeFrontNewline,
+		A2(
+			$elm$core$List$filter,
+			$author$project$Main$notJustaNewline,
+			A2($elm$core$List$drop, 1, list)));
 	var first = $author$project$Main$unMaybe(
 		$elm$core$List$head(list));
-	var rest = A2(
+	var term = $author$project$Main$unMaybe(
+		$elm$core$List$head(
+			A2(
+				$elm$core$List$map,
+				function ($) {
+					return $.match;
+				},
+				A2($elm$regex$Regex$find, $author$project$Main$nonTerminal, first))));
+	var termExtra = A2(
 		$elm$core$String$dropLeft,
 		2,
 		A4(
@@ -5601,28 +5571,10 @@ var $author$project$Main$extract = function (list) {
 				return '';
 			},
 			first));
-	var term = $author$project$Main$unMaybe(
-		$elm$core$List$head(
-			A2(
-				$elm$core$List$map,
-				function ($) {
-					return $.match;
-				},
-				A2($elm$regex$Regex$find, $author$project$Main$nonTerminal, first))));
-	var newList = A2(
-		$elm$core$List$map,
-		$author$project$Main$removeFrontNewline,
-		A2(
-			$elm$core$List$filter,
-			$author$project$Main$notJustaNewline,
-			A2(
-				$elm$core$List$cons,
-				term,
-				A2(
-					$elm$core$List$cons,
-					rest,
-					A2($elm$core$List$drop, 1, list)))));
-	return newList;
+	return A2(
+		$elm$core$List$cons,
+		term,
+		A2($elm$core$List$cons, termExtra, rest));
 };
 var $author$project$Main$getBits = A2(
 	$elm$core$Maybe$withDefault,
@@ -5830,6 +5782,9 @@ var $author$project$Main$getAt = F2(
 			$elm$core$List$head(
 				A2($elm$core$List$drop, index, list)));
 	});
+var $elm$core$Basics$negate = function (n) {
+	return -n;
+};
 var $author$project$Main$getLength = F2(
 	function (key, toks) {
 		var _v0 = A2($elm$core$Dict$get, key, toks);
@@ -5861,6 +5816,48 @@ var $author$project$Main$getTerminal = function (input) {
 		return 'Uh oh';
 	}
 };
+var $elm$random$Random$Generator = function (a) {
+	return {$: 'Generator', a: a};
+};
+var $elm$core$Bitwise$and = _Bitwise_and;
+var $elm$core$Bitwise$xor = _Bitwise_xor;
+var $elm$random$Random$peel = function (_v0) {
+	var state = _v0.a;
+	var word = (state ^ (state >>> ((state >>> 28) + 4))) * 277803737;
+	return ((word >>> 22) ^ word) >>> 0;
+};
+var $elm$random$Random$int = F2(
+	function (a, b) {
+		return $elm$random$Random$Generator(
+			function (seed0) {
+				var _v0 = (_Utils_cmp(a, b) < 0) ? _Utils_Tuple2(a, b) : _Utils_Tuple2(b, a);
+				var lo = _v0.a;
+				var hi = _v0.b;
+				var range = (hi - lo) + 1;
+				if (!((range - 1) & range)) {
+					return _Utils_Tuple2(
+						(((range - 1) & $elm$random$Random$peel(seed0)) >>> 0) + lo,
+						$elm$random$Random$next(seed0));
+				} else {
+					var threshhold = (((-range) >>> 0) % range) >>> 0;
+					var accountForBias = function (seed) {
+						accountForBias:
+						while (true) {
+							var x = $elm$random$Random$peel(seed);
+							var seedN = $elm$random$Random$next(seed);
+							if (_Utils_cmp(x, threshhold) < 0) {
+								var $temp$seed = seedN;
+								seed = $temp$seed;
+								continue accountForBias;
+							} else {
+								return _Utils_Tuple2((x % range) + lo, seedN);
+							}
+						}
+					};
+					return accountForBias(seed0);
+				}
+			});
+	});
 var $elm$core$Tuple$second = function (_v0) {
 	var y = _v0.b;
 	return y;
@@ -5873,66 +5870,40 @@ var $elm$random$Random$step = F2(
 var $author$project$Main$replaceTerminal = function (model) {
 	var key = $author$project$Main$getTerminal(model.cur_parse);
 	var len = A2($author$project$Main$getLength, key, model.tokens);
-	var values = A2(
+	var randomtuple = A2(
 		$elm$random$Random$step,
 		A2($elm$random$Random$int, 0, len - 1),
 		model.seed);
+	var seed = randomtuple.b;
 	var list = A2($author$project$Main$getList, key, model.tokens);
-	var replaceWith = A2($author$project$Main$getAt, list, values.a);
-	var _v0 = A2($elm$core$Dict$get, key, model.tokens);
-	if (_v0.$ === 'Just') {
-		var value = _v0.a;
-		return _Utils_update(
-			model,
-			{
-				cur_parse: A4(
-					$elm$regex$Regex$replaceAtMost,
-					1,
-					$author$project$Main$nonTerminal,
-					function (_v1) {
-						return replaceWith;
-					},
-					model.cur_parse),
-				seed: values.b
-			});
-	} else {
-		return model;
-	}
+	var replaceWith = A2($author$project$Main$getAt, list, randomtuple.a);
+	var newParse = A4(
+		$elm$regex$Regex$replaceAtMost,
+		1,
+		$author$project$Main$nonTerminal,
+		function (_v0) {
+			return replaceWith;
+		},
+		model.cur_parse);
+	return _Utils_update(
+		model,
+		{cur_parse: newParse, seed: randomtuple.b});
 };
 var $author$project$Main$update = F2(
 	function (msg, model) {
 		update:
 		while (true) {
 			switch (msg.$) {
-				case 'Increment':
-					return _Utils_Tuple2(
-						_Utils_update(
-							model,
-							{value: model.value + 1}),
-						$elm$core$Platform$Cmd$none);
-				case 'Decrement':
-					return _Utils_Tuple2(
-						_Utils_update(
-							model,
-							{value: model.value - 1}),
-						$elm$core$Platform$Cmd$none);
 				case 'Exec':
-					var mm = _Utils_update(
-						model,
-						{
-							cur_parse: '',
-							output: '',
-							tokens: $author$project$Main$makeStruct(model.input)
-						});
+					var tokens = $author$project$Main$makeStruct(model.input);
+					var start = $author$project$Main$unMaybe(
+						$elm$core$List$head(
+							$author$project$Main$noMaybe(
+								A2($elm$core$Dict$get, '<start>', tokens))));
 					var $temp$msg = $author$project$Main$Terminal,
 						$temp$model = _Utils_update(
-						mm,
-						{
-							cur_parse: $author$project$Main$unMaybe(
-								$elm$core$List$head(
-									$author$project$Main$noMaybe(
-										A2($elm$core$Dict$get, '<start>', mm.tokens))))
-						});
+						model,
+						{cur_parse: start, output: '', tokens: tokens});
 					msg = $temp$msg;
 					model = $temp$model;
 					continue update;
@@ -5950,14 +5921,6 @@ var $author$project$Main$update = F2(
 								{output: model.cur_parse}),
 							$elm$core$Platform$Cmd$none);
 					}
-				case 'Parse':
-					return _Utils_Tuple2(
-						_Utils_update(
-							model,
-							{
-								tokens: $author$project$Main$makeStruct(model.input)
-							}),
-						$elm$core$Platform$Cmd$none);
 				case 'Change':
 					var _new = msg.a;
 					return _Utils_Tuple2(
@@ -5965,7 +5928,7 @@ var $author$project$Main$update = F2(
 							model,
 							{input: _new}),
 						$elm$core$Platform$Cmd$none);
-				case 'GetTime':
+				default:
 					var timeNow = msg.a;
 					return _Utils_Tuple2(
 						_Utils_update(
@@ -5974,17 +5937,6 @@ var $author$project$Main$update = F2(
 								seed: $elm$random$Random$initialSeed(
 									$elm$time$Time$posixToMillis(timeNow))
 							}),
-						$elm$core$Platform$Cmd$none);
-				default:
-					var result = A2(
-						$elm$random$Random$step,
-						A2($elm$random$Random$int, 0, 100),
-						model.seed);
-					var newSeed = result.b;
-					return _Utils_Tuple2(
-						_Utils_update(
-							model,
-							{seed: newSeed}),
 						$elm$core$Platform$Cmd$none);
 			}
 		}
